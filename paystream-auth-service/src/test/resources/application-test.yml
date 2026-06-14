@@ -1,0 +1,16 @@
+# Test profile — overrides auth-service's main application.yml
+# JWT keys are generated in-memory by test fixtures; no key files needed.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+
+paystream:
+  security:
+    jwt:
+      private-key-path: keys/test-private.pem
+      public-key-path:  keys/test-public.pem
+      access-token-ttl-seconds: 900
+      refresh-token-ttl-seconds: 604800
