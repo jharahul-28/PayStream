@@ -1,0 +1,739 @@
+version: "3.9"
+
+# =============================================================================
+# PayStream — Local Development Stack
+# Every service has a healthcheck and depends_on: condition: service_healthy
+# No plaintext passwords — all sensitive values use ${ENV_VAR:-default} syntax
+# =============================================================================
+
+x-postgres-defaults: &postgres-defaults
+  image: postgres:16-alpine
+  restart: unless-stopped
+  environment:
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  environment:
+    DB_USERNAME: paystream
+    DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    REDIS_PASSWORD: ${REDIS_PASSWORD:-localdevonly}
+    EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+    INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-only-local-key}
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Databases — one per service (bounded context isolation)
+  # ---------------------------------------------------------------------------
+
+  postgres-auth:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-auth
+    environment:
+      POSTGRES_DB:       auth_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres-payment:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-payment
+    environment:
+      POSTGRES_DB:       payment_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_payment_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d payment_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres-wallet:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-wallet
+    environment:
+      POSTGRES_DB:       wallet_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_wallet_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d wallet_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres-ledger:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-ledger
+    environment:
+      POSTGRES_DB:       ledger_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_ledger_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d ledger_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres-settlement:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-settlement
+    environment:
+      POSTGRES_DB:       settlement_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_settlement_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d settlement_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres-audit:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-audit
+    environment:
+      POSTGRES_DB:       audit_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5437:5432"
+    volumes:
+      - postgres_audit_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d audit_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Redis — session store, rate limiter, token blocklist, idempotency cache
+  # ---------------------------------------------------------------------------
+
+  redis:
+    image: redis:7-alpine
+    container_name: paystream-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-localdevonly}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-localdevonly}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Kafka — KRaft mode (no ZooKeeper)
+  # ---------------------------------------------------------------------------
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: paystream-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: paystream-local-cluster-01
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: paystream-kafka-ui
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: paystream-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Service registry
+  # ---------------------------------------------------------------------------
+
+  eureka-server:
+    build:
+      context: ..
+      dockerfile: paystream-eureka-server/Dockerfile
+    image: paystream/eureka-server:local
+    container_name: paystream-eureka
+    restart: unless-stopped
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+
+  # ---------------------------------------------------------------------------
+  # API Gateway
+  # ---------------------------------------------------------------------------
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: paystream-gateway/Dockerfile
+    image: paystream/api-gateway:local
+    container_name: paystream-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-localdevonly}
+      AUTH_SERVICE_JWKS_URI: http://auth-service:8081/.well-known/jwks.json
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+
+  # ---------------------------------------------------------------------------
+  # Auth Service
+  # ---------------------------------------------------------------------------
+
+  auth-service:
+    build:
+      context: ..
+      dockerfile: paystream-auth-service/Dockerfile
+    image: paystream/auth-service:local
+    container_name: paystream-auth
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST:          postgres-auth
+      DB_PORT:          5432
+      DB_NAME:          auth_db
+      DB_USERNAME:      paystream
+      DB_PASSWORD:      ${POSTGRES_PASSWORD:-localdevonly}
+      REDIS_HOST:       redis
+      REDIS_PORT:       6379
+      REDIS_PASSWORD:   ${REDIS_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      JWT_PRIVATE_KEY_PATH: classpath:keys/private.pem
+      JWT_PUBLIC_KEY_PATH:  classpath:keys/public.pem
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Payment Service (Milestone 2)
+  # ---------------------------------------------------------------------------
+
+  payment-service:
+    build:
+      context: ..
+      dockerfile: paystream-payment-service/Dockerfile
+    image: paystream/payment-service:local
+    container_name: paystream-payment
+    <<: *service-defaults
+    ports:
+      - "8082:8082"
+    environment:
+      DB_HOST:  postgres-payment
+      DB_PORT:  5432
+      DB_NAME:  payment_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-only-local-key}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-payment:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Wallet Service (Milestone 2)
+  # ---------------------------------------------------------------------------
+
+  wallet-service:
+    build:
+      context: ..
+      dockerfile: paystream-wallet-service/Dockerfile
+    image: paystream/wallet-service:local
+    container_name: paystream-wallet
+    <<: *service-defaults
+    ports:
+      - "8083:8083"
+    environment:
+      DB_HOST:  postgres-wallet
+      DB_PORT:  5432
+      DB_NAME:  wallet_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-only-local-key}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-wallet:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Ledger Service (Milestone 2)
+  # ---------------------------------------------------------------------------
+
+  ledger-service:
+    build:
+      context: ..
+      dockerfile: paystream-ledger-service/Dockerfile
+    image: paystream/ledger-service:local
+    container_name: paystream-ledger
+    <<: *service-defaults
+    ports:
+      - "8084:8084"
+    environment:
+      DB_HOST:  postgres-ledger
+      DB_PORT:  5432
+      DB_NAME:  ledger_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-only-local-key}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-ledger:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Notification Service (Milestone 3)
+  # ---------------------------------------------------------------------------
+
+  postgres-notification:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-notification
+    environment:
+      POSTGRES_DB:       notification_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5438:5432"
+    volumes:
+      - postgres_notification_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d notification_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  notification-service:
+    build:
+      context: ..
+      dockerfile: paystream-notification-service/Dockerfile
+    image: paystream/notification-service:local
+    container_name: paystream-notification
+    <<: *service-defaults
+    ports:
+      - "8085:8085"
+    environment:
+      DB_HOST:  postgres-notification
+      DB_PORT:  5432
+      DB_NAME:  notification_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MAIL_HOST: mailhog
+      MAIL_PORT: 1025
+    depends_on:
+      postgres-notification:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Settlement Service (Milestone 3)
+  # ---------------------------------------------------------------------------
+
+  settlement-service:
+    build:
+      context: ..
+      dockerfile: paystream-settlement-service/Dockerfile
+    image: paystream/settlement-service:local
+    container_name: paystream-settlement
+    <<: *service-defaults
+    ports:
+      - "8086:8086"
+    environment:
+      DB_HOST:  postgres-settlement
+      DB_PORT:  5432
+      DB_NAME:  settlement_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-settlement:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8086/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Webhook Service (Milestone 3)
+  # ---------------------------------------------------------------------------
+
+  postgres-webhook:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-webhook
+    environment:
+      POSTGRES_DB:       webhook_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5439:5432"
+    volumes:
+      - postgres_webhook_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d webhook_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  webhook-service:
+    build:
+      context: ..
+      dockerfile: paystream-webhook-service/Dockerfile
+    image: paystream/webhook-service:local
+    container_name: paystream-webhook
+    <<: *service-defaults
+    ports:
+      - "8087:8087"
+    environment:
+      DB_HOST:  postgres-webhook
+      DB_PORT:  5432
+      DB_NAME:  webhook_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-webhook:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8087/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Mailhog — local SMTP capture (Milestone 3)
+  # ---------------------------------------------------------------------------
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: paystream-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+
+  # ---------------------------------------------------------------------------
+  # Fraud Service (Milestone 4)
+  # ---------------------------------------------------------------------------
+
+  postgres-fraud:
+    <<: *postgres-defaults
+    container_name: paystream-postgres-fraud
+    environment:
+      POSTGRES_DB:       fraud_db
+      POSTGRES_USER:     paystream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+    ports:
+      - "5440:5432"
+    volumes:
+      - postgres_fraud_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paystream -d fraud_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  fraud-service:
+    build:
+      context: ..
+      dockerfile: paystream-fraud-service/Dockerfile
+    image: paystream/fraud-service:local
+    container_name: paystream-fraud
+    <<: *service-defaults
+    ports:
+      - "8088:8088"
+    environment:
+      DB_HOST:  postgres-fraud
+      DB_PORT:  5432
+      DB_NAME:  fraud_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-only-local-key}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ZIPKIN_HOST: zipkin
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy-key-for-local}
+    depends_on:
+      postgres-fraud:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zipkin:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8088/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Audit Service (Milestone 4)
+  # ---------------------------------------------------------------------------
+
+  audit-service:
+    build:
+      context: ..
+      dockerfile: paystream-audit-service/Dockerfile
+    image: paystream/audit-service:local
+    container_name: paystream-audit
+    <<: *service-defaults
+    ports:
+      - "8089:8089"
+    environment:
+      DB_HOST:  postgres-audit
+      DB_PORT:  5432
+      DB_NAME:  audit_db
+      DB_USERNAME: paystream
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-localdevonly}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ZIPKIN_HOST: zipkin
+    depends_on:
+      postgres-audit:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zipkin:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8089/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Observability stack (Milestone 4)
+  # ---------------------------------------------------------------------------
+
+  zipkin:
+    image: openzipkin/zipkin:3
+    container_name: paystream-zipkin
+    restart: unless-stopped
+    ports:
+      - "9411:9411"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9411/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: paystream-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - eureka-server
+
+  grafana:
+    image: grafana/grafana:10.3.0
+    container_name: paystream-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+# =============================================================================
+# Named volumes
+# =============================================================================
+
+volumes:
+  postgres_auth_data:
+  postgres_payment_data:
+  postgres_wallet_data:
+  postgres_ledger_data:
+  postgres_settlement_data:
+  postgres_audit_data:
+  postgres_notification_data:
+  postgres_webhook_data:
+  postgres_fraud_data:
+  redis_data:
+  kafka_data:
+  prometheus_data:
+  grafana_data:

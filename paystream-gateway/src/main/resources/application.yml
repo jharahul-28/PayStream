@@ -1,0 +1,116 @@
+spring:
+  application:
+    name: paystream-gateway
+
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: false
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      routes:
+        # Auth service — permit-all (JwtGlobalFilter skips these paths)
+        - id: auth-service
+          uri: lb://paystream-auth-service
+          predicates:
+            - Path=/api/v1/auth/**,/.well-known/**
+
+        # Payment service
+        - id: payment-service
+          uri: lb://paystream-payment-service
+          predicates:
+            - Path=/api/v1/payments/**
+
+        # Wallet service
+        - id: wallet-service
+          uri: lb://paystream-wallet-service
+          predicates:
+            - Path=/api/v1/wallets/**
+
+        # Ledger service
+        - id: ledger-service
+          uri: lb://paystream-ledger-service
+          predicates:
+            - Path=/api/v1/ledger/**
+
+        # Fraud service — FRAUD_ANALYST role enforced by service's @PreAuthorize
+        - id: fraud-service
+          uri: lb://fraud-service
+          predicates:
+            - Path=/api/v1/fraud/**
+
+        # Settlement service — FINANCE_OPS role enforced by service's @PreAuthorize
+        - id: settlement-service
+          uri: lb://paystream-settlement-service
+          predicates:
+            - Path=/api/v1/settlements/**
+
+        # Notification service
+        - id: notification-service
+          uri: lb://paystream-notification-service
+          predicates:
+            - Path=/api/v1/notifications/**
+
+        # Webhook service
+        - id: webhook-service
+          uri: lb://paystream-webhook-service
+          predicates:
+            - Path=/api/v1/webhooks/**
+
+        # Audit service
+        - id: audit-service
+          uri: lb://paystream-audit-service
+          predicates:
+            - Path=/api/v1/audit/**
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:localdevonly}
+      timeout: 2000ms
+
+server:
+  port: 8080
+  shutdown: graceful
+
+spring.lifecycle.timeout-per-shutdown-phase: 30s
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+paystream:
+  gateway:
+    jwks-uri: ${AUTH_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://${ZIPKIN_HOST:localhost}:9411/api/v2/spans
+
+logging:
+  level:
+    com.paystream: INFO
+  pattern:
+    console: '{"timestamp":"%d{yyyy-MM-dd HH:mm:ss.SSS}","level":"%level","service":"api-gateway","correlationId":"%X{correlationId}","logger":"%logger{36}","message":"%message"}%n'

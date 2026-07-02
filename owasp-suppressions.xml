@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+
+    <!--
+      PayStream OWASP Dependency Check Suppressions
+      Format: CVE ID, affected artifact, expiry date, justification
+
+      POLICY: Every suppression must have:
+        1. A specific CVE ID (not wildcards unless absolutely necessary)
+        2. A documented justification
+        3. An expiry date — no permanent suppressions without senior approval
+        4. The affected GAV coordinates
+    -->
+
+    <!--
+      Example suppression format (uncomment and fill in when needed):
+
+      <suppress until="2025-12-31Z">
+        <notes>CVE-XXXX-YYYY: False positive — we don't use the vulnerable code path (XYZ).
+               Review again before expiry date.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.example/example-lib@.*$</packageUrl>
+        <cve>CVE-XXXX-YYYY</cve>
+      </suppress>
+    -->
+
+    <!--
+      Spring Boot managed dependencies — CVEs in test-scoped artifacts
+      (e.g., h2 in test scope) are acceptable if not in production runtime.
+    -->
+
+    <!--
+      IMPORTANT: If adding a suppression:
+      1. Get approval from security lead
+      2. Document exactly why it's a false positive or accepted risk
+      3. Set the shortest reasonable expiry date
+      4. Create a follow-up ticket to re-evaluate before expiry
+    -->
+
+</suppressions>

@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-service
+  namespace: paystream
+  labels:
+    app: ledger-service
+    app.kubernetes.io/part-of: paystream
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ledger-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: ledger-service
+        app.kubernetes.io/part-of: paystream
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8084"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      terminationGracePeriodSeconds: 35
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: ledger-service
+          image: ghcr.io/your-org/paystream/ledger-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8084
+          env:
+            - name: JAVA_OPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: paystream-config
+                  key: JAVA_OPTS
+            - name: EUREKA_SERVER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: paystream-config
+                  key: EUREKA_SERVER_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: paystream-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: DB_HOST
+              value: "postgres-ledger"
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: paystream-config
+                  key: LEDGER_DB_NAME
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: paystream-secrets
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paystream-secrets
+                  key: DB_PASSWORD
+            - name: INTERNAL_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paystream-secrets
+                  key: INTERNAL_SERVICE_KEY
+            - name: ZIPKIN_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: paystream-config
+                  key: ZIPKIN_HOST
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8084
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8084
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3

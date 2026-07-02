@@ -1,0 +1,59 @@
+# =============================================================================
+# PayStream Ingress — routes all traffic through the API Gateway
+#
+# Prerequisites:
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/
+#     controller-v1.10.1/deploy/static/provider/cloud/deploy.yaml
+#
+# For local testing with minikube:
+#   minikube addons enable ingress
+#   echo "$(minikube ip) paystream.local" | sudo tee -a /etc/hosts
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paystream-ingress
+  namespace: paystream
+  labels:
+    app.kubernetes.io/part-of: paystream
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Rate limiting at ingress level (defence-in-depth)
+    nginx.ingress.kubernetes.io/limit-rps: "200"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - paystream.local
+      secretName: paystream-tls
+  rules:
+    - host: paystream.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080
+---
+# Self-signed TLS secret for local testing only
+# In production: use cert-manager with Let's Encrypt or your CA
+# kubectl create secret tls paystream-tls --cert=tls.crt --key=tls.key -n paystream
+apiVersion: v1
+kind: Secret
+metadata:
+  name: paystream-tls
+  namespace: paystream
+  annotations:
+    paystream.io/note: "Replace with real TLS certificate in production. Use cert-manager."
+type: kubernetes.io/tls
+data:
+  # Placeholder — replace with real cert/key
+  tls.crt: ""
+  tls.key: ""

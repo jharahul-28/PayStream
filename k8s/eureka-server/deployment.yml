@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eureka-server
+  namespace: paystream
+  labels:
+    app: eureka-server
+    app.kubernetes.io/part-of: paystream
+spec:
+  replicas: 1  # Eureka peer replication requires additional config for HA
+  selector:
+    matchLabels:
+      app: eureka-server
+  strategy:
+    type: Recreate  # Single instance — no rolling update needed
+  template:
+    metadata:
+      labels:
+        app: eureka-server
+        app.kubernetes.io/part-of: paystream
+    spec:
+      terminationGracePeriodSeconds: 35
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: eureka-server
+          image: ghcr.io/your-org/paystream/eureka-server:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8761
+          env:
+            - name: JAVA_OPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: paystream-config
+                  key: JAVA_OPTS
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8761
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8761
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 3

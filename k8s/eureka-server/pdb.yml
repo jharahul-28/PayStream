@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: eureka-server-pdb
+  namespace: paystream
+spec:
+  minAvailable: 0  # Allow full disruption for single-instance Eureka
+  selector:
+    matchLabels:
+      app: eureka-server

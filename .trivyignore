@@ -1,0 +1,13 @@
+# PayStream Trivy Ignore File
+#
+# Format: CVE-ID  # Justification: <reason>  Expires: <date>
+#
+# POLICY:
+#   - Each entry must have a justification comment
+#   - Each entry should have an expiry date for review
+#   - No CVE suppressed without documented approval
+#
+# Example:
+# CVE-2023-XXXXX  # Justification: False positive in test scope only. Expires: 2025-06-01
+#
+# Currently: no suppressions. All CVEs must be addressed.

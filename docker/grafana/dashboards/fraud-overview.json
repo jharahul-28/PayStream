@@ -1,0 +1,71 @@
+{
+  "id": null,
+  "title": "PayStream — Fraud Overview",
+  "tags": ["paystream", "fraud"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Fraud Block Rate (%)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "rate(paystream_fraud_checks_total{decision=\"BLOCK\"}[5m]) / rate(paystream_fraud_checks_total[5m]) * 100",
+        "legendFormat": "block %"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Fraud Checks by Decision",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 8, "x": 6, "y": 0},
+      "targets": [{
+        "expr": "sum by (decision) (paystream_fraud_checks_total)",
+        "legendFormat": "{{decision}}"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Top Fraud Flags",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 8, "x": 14, "y": 0},
+      "targets": [{
+        "expr": "topk(10, paystream_fraud_blocks_total)",
+        "legendFormat": "{{topFlag}}"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "AI Rules Disagreements",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{
+        "expr": "rate(paystream_fraud_ai_errors_total[5m])",
+        "legendFormat": "AI errors/sec"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Fraud Rules Engine p99 Latency (ms)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.99, rate(paystream_fraud_rules_duration_ms_bucket[5m]))",
+        "legendFormat": "p99 ms"
+      }]
+    },
+    {
+      "id": 6,
+      "title": "AI Enrichment p99 Latency (ms)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.99, rate(paystream_fraud_ai_duration_ms_bucket[5m]))",
+        "legendFormat": "AI p99 ms"
+      }]
+    }
+  ]
+}

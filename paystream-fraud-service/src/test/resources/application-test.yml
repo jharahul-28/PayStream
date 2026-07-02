@@ -1,0 +1,19 @@
+spring:
+  ai:
+    openai:
+      api-key: test-key
+      # Mock chat model for tests — no real API calls
+      chat:
+        options:
+          model: gpt-4o-mini
+
+paystream:
+  fraud:
+    rules-cache-ttl-seconds: 1
+    high-amount-threshold: 500000
+    velocity-daily-limit: 10
+    block-score-threshold: 80
+    review-score-threshold: 50
+    ai-min-score-for-enrichment: 30
+    rule-version: "1.0"
+    ai-system-prompt: "test prompt"

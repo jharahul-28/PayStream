@@ -1,0 +1,131 @@
+server:
+  port: 8088
+  shutdown: graceful
+
+spring.lifecycle.timeout-per-shutdown-phase: 30s
+
+spring:
+  application:
+    name: fraud-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5440}/${DB_NAME:fraud_db}
+    username: ${DB_USERNAME:paystream}
+    password: ${DB_PASSWORD:localdevonly}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:localdevonly}
+      timeout: 2000ms
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 2147483647
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        linger.ms: 5
+        compression.type: snappy
+    consumer:
+      group-id: fraud-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        isolation.level: read_committed
+        max.poll.records: 100
+        spring.json.trusted.packages: "com.paystream.*"
+
+  # Spring AI — OpenAI provider
+  # api-key loaded from env — never logged
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:dummy-key-for-local}
+      chat:
+        options:
+          model: ${AI_MODEL:gpt-4o-mini}
+          temperature: 0.1
+          max-tokens: 300
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://${ZIPKIN_HOST:localhost}:9411/api/v2/spans
+
+paystream:
+  internal:
+    service-key: ${INTERNAL_SERVICE_KEY:dev-only-local-key}
+
+  fraud:
+    rules-cache-ttl-seconds: 300
+    high-amount-threshold: 500000
+    velocity-daily-limit: 10
+    block-score-threshold: 80
+    review-score-threshold: 50
+    ai-min-score-for-enrichment: 30
+    rule-version: "1.0"
+    # System prompt stored here — never in Java source
+    ai-system-prompt: >
+      You are a payment fraud risk analyst for a fintech platform.
+      Analyse the transaction details and user profile provided.
+      Respond ONLY with valid JSON — no preamble, no markdown, no explanation outside the JSON.
+      Required schema: { "riskScore": <int 0-100>, "confidence": <decimal 0.00-1.00>, "flags": [<string>], "reasoning": "<string max 100 words>" }
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      ai-enrichment:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+
+logging:
+  level:
+    com.paystream: INFO
+    org.springframework.ai: WARN
+  pattern:
+    console: '{"timestamp":"%d{yyyy-MM-dd HH:mm:ss.SSS}","level":"%level","service":"fraud-service","correlationId":"%X{correlationId}","logger":"%logger{36}","message":"%message"}%n'

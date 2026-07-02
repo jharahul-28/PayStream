@@ -1,0 +1,87 @@
+{
+  "id": null,
+  "title": "PayStream — Payment Operations",
+  "tags": ["paystream", "payments"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Payment Rate (per min)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "rate(paystream_payments_initiated_total[1m]) * 60",
+        "legendFormat": "payments/min"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Payment Success Rate (%)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{
+        "expr": "rate(paystream_payments_completed_total[5m]) / (rate(paystream_payments_completed_total[5m]) + rate(paystream_payments_failed_total[5m])) * 100",
+        "legendFormat": "success %"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Payment p99 Latency (ms)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "histogram_quantile(0.99, rate(paystream_payment_duration_seconds_bucket[5m])) * 1000",
+        "legendFormat": "p99 latency ms"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Outbox Pending Events",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{
+        "expr": "paystream_outbox_pending_count",
+        "legendFormat": "pending"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Payments Completed Over Time",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "rate(paystream_payments_completed_total[5m])",
+          "legendFormat": "completed"
+        },
+        {
+          "expr": "rate(paystream_payments_failed_total[5m])",
+          "legendFormat": "failed"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Payment Latency Percentiles",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(paystream_payment_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(paystream_payment_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(paystream_payment_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p99"
+        }
+      ]
+    }
+  ]
+}

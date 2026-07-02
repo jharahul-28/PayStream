@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: webhook-service-pdb
+  namespace: paystream
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: webhook-service
